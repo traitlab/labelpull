@@ -100,8 +100,10 @@ def test_flatten_single_project_inferred_when_id_omitted(boxes_rows: list[dict])
 def test_flatten_ambiguous_multi_project_returns_empty() -> None:
     dr = {
         "data_row": {"id": "d", "global_key": "g"},
-        "projects": {"a": {"labels": [{"label_details": {}, "annotations": {}}]},
-                     "b": {"labels": [{"label_details": {}, "annotations": {}}]}},
+        "projects": {
+            "a": {"labels": [{"label_details": {}, "annotations": {}}]},
+            "b": {"labels": [{"label_details": {}, "annotations": {}}]},
+        },
     }
     assert flatten(dr) == []  # two projects, none named -> no silent mixing
 

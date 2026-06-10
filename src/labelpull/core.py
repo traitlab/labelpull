@@ -24,7 +24,10 @@ import os
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
+
+# One export row (and its nested blocks) is arbitrary JSON; alias it for brevity.
+JsonDict = dict[str, Any]
 
 # The task-queue stages ``project.export(filters={"workflow_status": ...})`` accepts.
 WORKFLOW_STATUSES = ("ToLabel", "InReview", "InRework", "Done")
@@ -64,7 +67,7 @@ def export(
     since: str | None = None,
     api_key: str | None = None,
     client: Any | None = None,
-) -> Iterator[dict]:
+) -> Iterator[JsonDict]:
     """Stream export rows (one dict per data row) for ``project_id``.
 
     ``status`` filters by task-queue stage (see :data:`WORKFLOW_STATUSES`).
@@ -87,7 +90,7 @@ def export(
             yield dr
 
 
-def read_export_file(path: str | Path) -> list[dict]:
+def read_export_file(path: str | Path) -> list[JsonDict]:
     """Load a saved export (JSON array or NDJSON) for offline flattening."""
     text = Path(path).read_text().strip()
     if not text:
@@ -99,7 +102,7 @@ def read_export_file(path: str | Path) -> list[dict]:
         return [json.loads(line) for line in text.splitlines() if line.strip()]
 
 
-def flatten(dr: dict, project_id: str | None = None) -> list[FeatureRow]:
+def flatten(dr: JsonDict, project_id: str | None = None) -> list[FeatureRow]:
     """Flatten one export row into :class:`FeatureRow` rows (every feature).
 
     ``project_id`` selects which project's labels to read; ``None`` uses the only
@@ -125,8 +128,15 @@ def flatten(dr: dict, project_id: str | None = None) -> list[FeatureRow]:
     def emit(kind: str, name: str | None, value: str, parent: str = "") -> None:
         rows.append(
             FeatureRow(
-                global_key, data_row_id, kind, name or "", value,
-                status, labeled_by, created_at, parent,
+                global_key,
+                data_row_id,
+                kind,
+                name or "",
+                value,
+                status,
+                labeled_by,
+                created_at,
+                parent,
             )
         )
 
@@ -165,7 +175,7 @@ class Summary:
     latest_created_at: str | None
 
 
-def summarize(rows: Iterable[dict], features: Iterable[FeatureRow]) -> Summary:
+def summarize(rows: Iterable[JsonDict], features: Iterable[FeatureRow]) -> Summary:
     """Count data rows, labelled rows, and per-kind/name/status breakdowns."""
     rows = list(rows)
     features = list(features)
@@ -216,7 +226,7 @@ def _make_client(api_key: str | None) -> Any:
     return lb.Client(api_key=key)
 
 
-def _select_project(dr: dict, project_id: str | None) -> dict:
+def _select_project(dr: JsonDict, project_id: str | None) -> JsonDict:
     projects = dr.get("projects") or {}
     if project_id is not None:
         return projects.get(project_id) or {}
@@ -225,25 +235,25 @@ def _select_project(dr: dict, project_id: str | None) -> dict:
     return {}  # ambiguous: caller must name the project
 
 
-def _latest_label(proj: dict) -> dict | None:
+def _latest_label(proj: JsonDict) -> JsonDict | None:
     # A QC-reviewed row carries the annotator's label *and* the reviewer's; the
     # verified answer is the most recently created, not labels[0].
     labels = proj.get("labels") or []
     if not labels:
         return None
-    return max(labels, key=_created_at_of_label)
+    return cast("JsonDict", max(labels, key=_created_at_of_label))
 
 
-def _created_at_of_label(label: dict) -> str:
+def _created_at_of_label(label: JsonDict) -> str:
     return (label.get("label_details") or {}).get("created_at") or ""
 
 
-def _created_at(proj: dict) -> str:
+def _created_at(proj: JsonDict) -> str:
     label = _latest_label(proj)
     return _created_at_of_label(label) if label else ""
 
 
-def _workflow_status(proj: dict) -> str | None:
+def _workflow_status(proj: JsonDict) -> str | None:
     details = proj.get("project_details") or {}
     status = details.get("workflow_status")
     if status is None:
@@ -252,7 +262,7 @@ def _workflow_status(proj: dict) -> str | None:
     return status
 
 
-def _classification_value(cls: dict) -> tuple[str, str]:
+def _classification_value(cls: JsonDict) -> tuple[str, str]:
     if cls.get("radio_answer"):
         answer = cls["radio_answer"]
         return "radio", answer.get("value") or answer.get("name") or ""
@@ -264,7 +274,7 @@ def _classification_value(cls: dict) -> tuple[str, str]:
     return "unknown", ""
 
 
-def _object_geometry(obj: dict) -> tuple[str, str]:
+def _object_geometry(obj: JsonDict) -> tuple[str, str]:
     for kind in _GEOMETRY_KINDS:
         geom = obj.get(kind)
         if geom is None:

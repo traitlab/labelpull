@@ -71,7 +71,14 @@ def test_cli_pull_offline_generic(tmp_path: Path) -> None:
     out = tmp_path / "labels.csv"
     result = runner.invoke(
         app,
-        ["pull", "proj_y", "--from-export", str(FIXTURES / "boxes_masks_export.ndjson"), "-o", str(out)],
+        [
+            "pull",
+            "proj_y",
+            "--from-export",
+            str(FIXTURES / "boxes_masks_export.ndjson"),
+            "-o",
+            str(out),
+        ],
     )
     assert result.exit_code == 0, result.output
     assert "labelpull v" in result.output
@@ -85,8 +92,16 @@ def test_cli_pull_offline_species(tmp_path: Path) -> None:
     out = tmp_path / "taxa.csv"
     result = runner.invoke(
         app,
-        ["pull", "proj_x", "--schema", "species",
-         "--from-export", str(FIXTURES / "species_export.ndjson"), "-o", str(out)],
+        [
+            "pull",
+            "proj_x",
+            "--schema",
+            "species",
+            "--from-export",
+            str(FIXTURES / "species_export.ndjson"),
+            "-o",
+            str(out),
+        ],
     )
     assert result.exit_code == 0, result.output
     with out.open(newline="") as f:
@@ -96,5 +111,8 @@ def test_cli_pull_offline_species(tmp_path: Path) -> None:
 
 
 def test_cli_unknown_schema_errors() -> None:
-    result = runner.invoke(app, ["pull", "p", "--schema", "nope", "--from-export", str(FIXTURES / "species_export.ndjson")])
+    result = runner.invoke(
+        app,
+        ["pull", "p", "--schema", "nope", "--from-export", str(FIXTURES / "species_export.ndjson")],
+    )
     assert result.exit_code != 0

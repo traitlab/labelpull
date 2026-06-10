@@ -1,9 +1,9 @@
 """``labelpull`` CLI: pull the latest Labelbox annotations to a tidy CSV.
 
-    labelpull pull PROJECT_ID -o labels.csv
-    labelpull pull PROJECT_ID --status Done --since 2026-06-01
-    labelpull pull PROJECT_ID --schema species -o taxa.csv
-    labelpull pull PROJECT_ID --from-export export.ndjson   # offline, no API key
+labelpull pull PROJECT_ID -o labels.csv
+labelpull pull PROJECT_ID --status Done --since 2026-06-01
+labelpull pull PROJECT_ID --schema species -o taxa.csv
+labelpull pull PROJECT_ID --from-export export.ndjson   # offline, no API key
 """
 
 from __future__ import annotations
@@ -14,7 +14,15 @@ import typer
 
 from labelpull import __version__
 from labelpull.adapters import ADAPTERS, write_csv
-from labelpull.core import _created_at, _select_project, flatten, read_export_file, summarize
+from labelpull.core import (
+    FeatureRow,
+    JsonDict,
+    _created_at,
+    _select_project,
+    flatten,
+    read_export_file,
+    summarize,
+)
 from labelpull.core import export as live_export
 
 app = typer.Typer(add_completion=False, help="Pull the latest Labelbox annotations to CSV.")
@@ -43,7 +51,9 @@ def pull(
         None, help="Keep only rows whose newest label was created on/after this ISO date/time."
     ),
     from_export: Path | None = typer.Option(
-        None, exists=True, dir_okay=False,
+        None,
+        exists=True,
+        dir_okay=False,
         help="Flatten a saved export (JSON/NDJSON) offline instead of the live API.",
     ),
     api_key: str | None = typer.Option(None, help="Labelbox API key (else LABELBOX_API_KEY)."),
@@ -69,11 +79,11 @@ def pull(
     typer.echo(f"wrote {schema} CSV: {out}")
 
 
-def _row_since(dr: dict, project_id: str, since: str) -> bool:
+def _row_since(dr: JsonDict, project_id: str, since: str) -> bool:
     return _created_at(_select_project(dr, project_id)) >= since
 
 
-def _print_summary(rows: list, features: list) -> None:
+def _print_summary(rows: list[JsonDict], features: list[FeatureRow]) -> None:
     s = summarize(rows, features)
     typer.echo(
         f"  {s.n_labelled} labelled / {s.n_data_rows} rows "

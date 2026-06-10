@@ -43,9 +43,21 @@ def test_species_adapter_wide_csv(tmp_path: Path) -> None:
     assert rows[0] == ["global_key", "taxon", "organs", "labeled_by", "workflow_status"]
     body = {r[0]: r for r in rows[1:]}
     # photo_a: InReview, leaf;flower
-    assert body["photo_a.JPG"] == ["photo_a.JPG", "Ficus insipida", "leaf;flower", "ann@bci.org", "InReview"]
+    assert body["photo_a.JPG"] == [
+        "photo_a.JPG",
+        "Ficus insipida",
+        "leaf;flower",
+        "ann@bci.org",
+        "InReview",
+    ]
     # photo_b: reviewer's corrected taxon + fruit, Done
-    assert body["photo_b.JPG"] == ["photo_b.JPG", "Apeiba tibourbou", "fruit", "reviewer@bci.org", "Done"]
+    assert body["photo_b.JPG"] == [
+        "photo_b.JPG",
+        "Apeiba tibourbou",
+        "fruit",
+        "reviewer@bci.org",
+        "Done",
+    ]
     # photo_c: reached + labelled but empty -> taxon "", still present
     assert body["photo_c.JPG"] == ["photo_c.JPG", "", "", "ann@bci.org", "Done"]
     # photo_d: unlabelled -> absent

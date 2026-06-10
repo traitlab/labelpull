@@ -1,0 +1,39 @@
+name: Release
+
+# Publish to PyPI when a version tag is pushed (e.g. `git tag v0.1.0 && git push --tags`).
+# Uses PyPI trusted publishing (OIDC) — no API token secret required. To enable:
+#   1. Create the project on PyPI and add this repo as a trusted publisher
+#      (workflow `release.yml`, environment `pypi`).
+#   2. Create a GitHub environment named `pypi` (optionally with required reviewers).
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - name: Build sdist + wheel
+        run: uv build
+      - name: Check metadata renders on PyPI
+        run: uvx twine check dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write # OIDC token for PyPI trusted publishing
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

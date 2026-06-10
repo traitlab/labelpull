@@ -31,15 +31,28 @@ class GenericAdapter:
     """One CSV row per feature: the ontology-agnostic long format."""
 
     columns: Sequence[str] = (
-        "global_key", "data_row_id", "feature_kind", "feature_name", "value",
-        "workflow_status", "labeled_by", "created_at", "parent_feature_id",
+        "global_key",
+        "data_row_id",
+        "feature_kind",
+        "feature_name",
+        "value",
+        "workflow_status",
+        "labeled_by",
+        "created_at",
+        "parent_feature_id",
     )
 
     def rows(self, features: Iterable[FeatureRow]) -> Iterable[Sequence[str]]:
         for f in features:
             yield (
-                f.global_key, f.data_row_id, f.feature_kind, f.feature_name, f.value,
-                f.workflow_status or "", f.labeled_by or "", f.created_at or "",
+                f.global_key,
+                f.data_row_id,
+                f.feature_kind,
+                f.feature_name,
+                f.value,
+                f.workflow_status or "",
+                f.labeled_by or "",
+                f.created_at or "",
                 f.parent_feature_id,
             )
 
@@ -75,8 +88,11 @@ class SpeciesAdapter:
                 rec["organs"] = f.value
         for global_key, rec in by_key.items():
             yield (
-                global_key, rec["taxon"], rec["organs"],
-                rec["labeled_by"], rec["workflow_status"],
+                global_key,
+                rec["taxon"],
+                rec["organs"],
+                rec["labeled_by"],
+                rec["workflow_status"],
             )
 
 
