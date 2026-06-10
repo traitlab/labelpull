@@ -1,0 +1,43 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "labelpull"
+version = "0.1.0"
+description = "Pull the latest Labelbox annotations into a tidy, ontology-agnostic table."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "Wietze Suijker", email = "wietze.suijker@gmail.com" }]
+dependencies = ["typer>=0.9"]
+
+[project.optional-dependencies]
+live = ["labelbox>=7.0"]
+dev = ["pytest>=7.4", "pytest-cov>=4.1", "ruff>=0.4", "mypy>=1.8"]
+
+[project.scripts]
+labelpull = "labelpull.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/labelpull"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "PL"]
+
+[tool.ruff.lint.per-file-ignores]
+# Typer expresses CLI args as call-defaults (B008) and wide signatures (PLR0913).
+"src/labelpull/cli.py" = ["B008", "PLR0913"]
+# Tests assert against literal expected values (PLR2004) and import lazily (PLC0415).
+"tests/*" = ["PLR2004", "PLC0415", "E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[[tool.mypy.overrides]]
+module = "labelbox"
+ignore_missing_imports = true
