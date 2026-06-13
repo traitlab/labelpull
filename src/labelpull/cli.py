@@ -15,6 +15,7 @@ import typer
 from labelpull import __version__
 from labelpull.adapters import ADAPTERS, write_csv
 from labelpull.core import (
+    WORKFLOW_STATUSES,
     FeatureRow,
     JsonDict,
     _created_at,
@@ -59,6 +60,8 @@ def pull(
     api_key: str | None = typer.Option(None, help="Labelbox API key (else LABELBOX_API_KEY)."),
 ) -> None:
     """Export the latest annotations and flatten them to CSV, with a summary."""
+    if status is not None and status not in WORKFLOW_STATUSES:
+        raise typer.BadParameter(f"--status must be one of {', '.join(WORKFLOW_STATUSES)}")
     if schema not in ADAPTERS:
         raise typer.BadParameter(f"unknown schema {schema!r}; choose from {sorted(ADAPTERS)}")
     adapter = ADAPTERS[schema]()
@@ -87,7 +90,7 @@ def _print_summary(rows: list[JsonDict], features: list[FeatureRow]) -> None:
     s = summarize(rows, features)
     typer.echo(
         f"  {s.n_labelled} labelled / {s.n_data_rows} rows "
-        f"({s.n_reached_unlabelled} reached unlabelled)"
+        f"({s.n_reached_unlabelled} without labels)"
     )
     if s.statuses:
         typer.echo("  status: " + ", ".join(f"{k}={v}" for k, v in sorted(s.statuses.items())))

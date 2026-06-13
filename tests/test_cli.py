@@ -116,3 +116,46 @@ def test_cli_unknown_schema_errors() -> None:
         ["pull", "p", "--schema", "nope", "--from-export", str(FIXTURES / "species_export.ndjson")],
     )
     assert result.exit_code != 0
+
+
+# --- Fix 3: CLI wording ------------------------------------------------------
+
+
+def test_cli_summary_says_without_labels_not_reached_unlabelled(tmp_path: Path) -> None:
+    """CLI output uses 'without labels' (not 'reached unlabelled') for unlabelled count."""
+    out = tmp_path / "labels.csv"
+    result = runner.invoke(
+        app,
+        [
+            "pull",
+            "proj_x",
+            "--from-export",
+            str(FIXTURES / "species_export.ndjson"),
+            "-o",
+            str(out),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "without labels" in result.output
+    assert "reached unlabelled" not in result.output
+
+
+# --- Fix 4: --status validation ----------------------------------------------
+
+
+def test_cli_invalid_status_exits_nonzero_with_helpful_message() -> None:
+    """--status bogus exits non-zero and includes the valid choices in the message."""
+    result = runner.invoke(
+        app,
+        [
+            "pull",
+            "p",
+            "--status",
+            "bogus",
+            "--from-export",
+            str(FIXTURES / "species_export.ndjson"),
+        ],
+    )
+    assert result.exit_code != 0
+    combined = (result.output or "") + str(result.exception or "")
+    assert "ToLabel" in combined or "must be one of" in combined
