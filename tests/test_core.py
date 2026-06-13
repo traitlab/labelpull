@@ -136,9 +136,7 @@ def test_latest_label_all_timestamped_newest_wins() -> None:
                             "created_by": "early@x.org",
                         },
                         "annotations": {
-                            "classifications": [
-                                {"name": "Tag", "radio_answer": {"value": "old"}}
-                            ],
+                            "classifications": [{"name": "Tag", "radio_answer": {"value": "old"}}],
                             "objects": [],
                         },
                     },
@@ -148,9 +146,7 @@ def test_latest_label_all_timestamped_newest_wins() -> None:
                             "created_by": "reviewer@x.org",
                         },
                         "annotations": {
-                            "classifications": [
-                                {"name": "Tag", "radio_answer": {"value": "new"}}
-                            ],
+                            "classifications": [{"name": "Tag", "radio_answer": {"value": "new"}}],
                             "objects": [],
                         },
                     },

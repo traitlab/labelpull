@@ -61,9 +61,7 @@ def pull(
 ) -> None:
     """Export the latest annotations and flatten them to CSV, with a summary."""
     if status is not None and status not in WORKFLOW_STATUSES:
-        raise typer.BadParameter(
-            f"--status must be one of {', '.join(WORKFLOW_STATUSES)}"
-        )
+        raise typer.BadParameter(f"--status must be one of {', '.join(WORKFLOW_STATUSES)}")
     if schema not in ADAPTERS:
         raise typer.BadParameter(f"unknown schema {schema!r}; choose from {sorted(ADAPTERS)}")
     adapter = ADAPTERS[schema]()
