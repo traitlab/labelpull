@@ -8,6 +8,7 @@ import pytest
 
 from labelpull.core import (
     FeatureRow,
+    export,
     flatten,
     read_export_file,
     summarize,
@@ -117,3 +118,222 @@ def test_summarize_counts(species_rows: list[dict]) -> None:
     assert s.statuses == {"InReview": 1, "Done": 2}
     assert s.feature_kinds["radio"] == 2
     assert s.latest_created_at == "2026-06-03T14:00:00Z"
+
+
+# --- Fix 1: _latest_label missing-timestamp bug ----------------------------
+
+
+def test_latest_label_all_timestamped_newest_wins() -> None:
+    """When all labels have created_at, max by timestamp (newest) is returned."""
+    dr = {
+        "data_row": {"id": "d1", "global_key": "img.JPG"},
+        "projects": {
+            "p": {
+                "labels": [
+                    {
+                        "label_details": {
+                            "created_at": "2026-06-01T08:00:00Z",
+                            "created_by": "early@x.org",
+                        },
+                        "annotations": {
+                            "classifications": [
+                                {"name": "Tag", "radio_answer": {"value": "old"}}
+                            ],
+                            "objects": [],
+                        },
+                    },
+                    {
+                        "label_details": {
+                            "created_at": "2026-06-05T12:00:00Z",
+                            "created_by": "reviewer@x.org",
+                        },
+                        "annotations": {
+                            "classifications": [
+                                {"name": "Tag", "radio_answer": {"value": "new"}}
+                            ],
+                            "objects": [],
+                        },
+                    },
+                ],
+                "project_details": {"workflow_status": "Done"},
+            }
+        },
+    }
+    feats = flatten(dr, "p")
+    tags = [f.value for f in feats if f.feature_name == "Tag"]
+    assert tags == ["new"]  # newest timestamp wins
+    assert all(f.labeled_by == "reviewer@x.org" for f in feats if f.feature_kind != "label")
+
+
+def test_latest_label_missing_timestamp_falls_back_to_last() -> None:
+    """When any label lacks created_at, last label in array is returned (not lexicographic winner)."""
+    dr = {
+        "data_row": {"id": "d2", "global_key": "img2.JPG"},
+        "projects": {
+            "p": {
+                "labels": [
+                    {
+                        # No created_at — would produce "" which sorts below any date string.
+                        # Under old max() logic this label would NEVER win even if it's the
+                        # real latest; under the new rule it triggers the fallback.
+                        "label_details": {"created_by": "ann@x.org"},
+                        "annotations": {
+                            "classifications": [
+                                {"name": "Tag", "radio_answer": {"value": "first"}}
+                            ],
+                            "objects": [],
+                        },
+                    },
+                    {
+                        "label_details": {
+                            "created_at": "2026-01-01T00:00:00Z",  # very old date
+                            "created_by": "reviewer@x.org",
+                        },
+                        "annotations": {
+                            "classifications": [
+                                {"name": "Tag", "radio_answer": {"value": "lexwinner"}}
+                            ],
+                            "objects": [],
+                        },
+                    },
+                ],
+                "project_details": {"workflow_status": "InReview"},
+            }
+        },
+    }
+    feats = flatten(dr, "p")
+    tags = [f.value for f in feats if f.feature_name == "Tag"]
+    # Export-order fallback: labels[-1] is the reviewer's label (index 1).
+    # Under the broken max() logic, the timestamped label ("2026-01-01") would
+    # win because "" < any date string, returning "lexwinner" which is wrong.
+    assert tags == ["lexwinner"]  # last in array
+    assert all(f.labeled_by == "reviewer@x.org" for f in feats if f.feature_kind != "label")
+
+
+# --- Fix 2: NDJSON parse error context ------------------------------------
+
+
+def test_read_export_file_ndjson_malformed_line_reports_number(tmp_path: Path) -> None:
+    """A malformed NDJSON line raises ValueError naming the offending line number."""
+    bad = tmp_path / "bad.ndjson"
+    bad.write_text('{"ok": 1}\nNOT_JSON\n')
+    with pytest.raises(ValueError, match=r"line 2"):
+        read_export_file(bad)
+
+
+# --- Contract tests: documented-but-untested branches --------------------
+
+
+def test_relationships_annotation_yields_feature_kind_relationship() -> None:
+    """A 'relationships' annotation produces feature_kind='relationship'."""
+    dr = {
+        "data_row": {"id": "d3", "global_key": "img3.JPG"},
+        "projects": {
+            "p": {
+                "labels": [
+                    {
+                        "label_details": {
+                            "created_at": "2026-06-01T00:00:00Z",
+                            "created_by": "ann@x.org",
+                        },
+                        "annotations": {
+                            "classifications": [],
+                            "objects": [],
+                            "relationships": [
+                                {
+                                    "name": "linked_to",
+                                    "relationship": {"source": "f1", "target": "f2"},
+                                }
+                            ],
+                        },
+                    }
+                ],
+                "project_details": {"workflow_status": "Done"},
+            }
+        },
+    }
+    feats = flatten(dr, "p")
+    rel_feats = [f for f in feats if f.feature_kind == "relationship"]
+    assert len(rel_feats) == 1
+    assert rel_feats[0].feature_name == "linked_to"
+
+
+def test_classification_with_no_known_answer_type_yields_unknown() -> None:
+    """A classification with no radio/checklist/text answer returns ('unknown', '')."""
+    dr = {
+        "data_row": {"id": "d4", "global_key": "img4.JPG"},
+        "projects": {
+            "p": {
+                "labels": [
+                    {
+                        "label_details": {
+                            "created_at": "2026-06-01T00:00:00Z",
+                            "created_by": "ann@x.org",
+                        },
+                        "annotations": {
+                            "classifications": [
+                                # No radio_answer, checklist_answers, or text_answer.
+                                {"name": "Mystery", "some_future_field": "value"}
+                            ],
+                            "objects": [],
+                        },
+                    }
+                ],
+                "project_details": {"workflow_status": "Done"},
+            }
+        },
+    }
+    feats = flatten(dr, "p")
+    mystery = [f for f in feats if f.feature_name == "Mystery"]
+    assert len(mystery) == 1
+    assert mystery[0].feature_kind == "unknown"
+    assert mystery[0].value == ""
+
+
+def test_object_with_unrecognised_geometry_yields_unknown() -> None:
+    """An object with no recognised geometry key returns ('unknown', '')."""
+    dr = {
+        "data_row": {"id": "d5", "global_key": "img5.JPG"},
+        "projects": {
+            "p": {
+                "labels": [
+                    {
+                        "label_details": {
+                            "created_at": "2026-06-01T00:00:00Z",
+                            "created_by": "ann@x.org",
+                        },
+                        "annotations": {
+                            "classifications": [],
+                            "objects": [
+                                {
+                                    "feature_id": "f_x",
+                                    "name": "FutureShape",
+                                    "sphere": {"radius": 5},  # not in _GEOMETRY_KINDS
+                                    "classifications": [],
+                                }
+                            ],
+                        },
+                    }
+                ],
+                "project_details": {"workflow_status": "Done"},
+            }
+        },
+    }
+    feats = flatten(dr, "p")
+    shape = [f for f in feats if f.feature_name == "FutureShape"]
+    assert len(shape) == 1
+    assert shape[0].feature_kind == "unknown"
+    assert shape[0].value == ""
+
+
+def test_export_without_api_key_raises_runtime_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """export('p', client=None) with LABELBOX_API_KEY unset raises RuntimeError with a clear message.
+
+    Two cases: SDK absent -> message mentions 'labelpull[live]'; SDK present but no key ->
+    message mentions 'LABELBOX_API_KEY'. Either way it is a RuntimeError, not a bare
+    ImportError or AttributeError.
+    """
+    monkeypatch.delenv("LABELBOX_API_KEY", raising=False)
+    with pytest.raises(RuntimeError):
+        # Consume the iterator to trigger the lazy client creation.
+        list(export("p", client=None))

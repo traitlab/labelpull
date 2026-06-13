@@ -99,7 +99,15 @@ def read_export_file(path: str | Path) -> list[JsonDict]:
         loaded = json.loads(text)
         return loaded if isinstance(loaded, list) else [loaded]
     except json.JSONDecodeError:
-        return [json.loads(line) for line in text.splitlines() if line.strip()]
+        result: list[JsonDict] = []
+        for i, line in enumerate(text.splitlines(), start=1):
+            if not line.strip():
+                continue
+            try:
+                result.append(json.loads(line))
+            except json.JSONDecodeError as e:
+                raise ValueError(f"malformed NDJSON on line {i}: {e}") from e
+        return result
 
 
 def flatten(dr: JsonDict, project_id: str | None = None) -> list[FeatureRow]:
@@ -168,7 +176,7 @@ class Summary:
 
     n_data_rows: int
     n_labelled: int
-    n_reached_unlabelled: int
+    n_reached_unlabelled: int  # rows without labels, regardless of workflow stage
     feature_kinds: dict[str, int]
     feature_names: dict[str, int]
     statuses: dict[str, int]
@@ -236,11 +244,26 @@ def _select_project(dr: JsonDict, project_id: str | None) -> JsonDict:
 
 
 def _latest_label(proj: JsonDict) -> JsonDict | None:
-    # A QC-reviewed row carries the annotator's label *and* the reviewer's; the
-    # verified answer is the most recently created, not labels[0].
+    """Return the most-authoritative label from the project export block.
+
+    A QC-reviewed row carries the annotator's label *and* the reviewer's; the
+    verified answer is the most recently created, not labels[0].
+
+    Selection rules:
+    - If ALL labels have a non-empty ``created_at``, return the one with the
+      maximum (newest) timestamp.
+    - Otherwise, at least one label is missing a timestamp. Fall back to export
+      order and return ``labels[-1]``. Export order is last-in-newest by
+      Labelbox convention, so this is a best-effort approximation when
+      timestamps are absent.
+    """
     labels = proj.get("labels") or []
     if not labels:
         return None
+    # Fall back to export order when any label is missing a timestamp.
+    # (Export order: last-in == newest; deliberate best-effort fallback.)
+    if not all(_created_at_of_label(lbl) for lbl in labels):
+        return cast("JsonDict", labels[-1])
     return cast("JsonDict", max(labels, key=_created_at_of_label))
 
 
