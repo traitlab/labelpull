@@ -48,6 +48,8 @@ labelpull pull <PROJECT_ID> --from-export export.ndjson # offline: a UI "Export"
 `--status` takes `ToLabel | InReview | InRework | Done`. Every run prints a
 summary (rows, labelled count, feature kinds, latest label timestamp).
 
+`--since` compares instants, including fractional seconds and UTC offsets. A date such as `2026-06-01` means midnight UTC; a datetime uses `YYYY-MM-DDTHH:MM:SS` (a space may replace `T`), optional dot/comma fractional seconds, and `Z` or a signed `HH:MM` offset such as `-05:00` (whole `:SS` offset seconds are also supported). Invalid values, out-of-range offset components, compact/reduced-time forms, datetimes without an offset, and fractional UTC offsets raise an error. Rows with no selected label timestamp are excluded by `--since`. Label selection uses the newest timestamp, keeping the first label for equal instants; if any label lacks a timestamp, it retains the last label in export order as a best-effort fallback. Timestamp strings in the output keep their original spelling.
+
 If your project is a single-classification task and you want one row per item
 instead of the long format, filter the CSV to your feature (e.g. keep
 `feature_name == "Species"`), or write a 10-line `Adapter` (see below).

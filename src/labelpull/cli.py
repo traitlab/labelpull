@@ -18,8 +18,8 @@ from labelpull.core import (
     WORKFLOW_STATUSES,
     FeatureRow,
     JsonDict,
-    _created_at,
-    _select_project,
+    _row_since,
+    _timestamp_key,
     flatten,
     read_export_file,
     summarize,
@@ -64,13 +64,17 @@ def pull(
         raise typer.BadParameter(f"--status must be one of {', '.join(WORKFLOW_STATUSES)}")
     if schema not in ADAPTERS:
         raise typer.BadParameter(f"unknown schema {schema!r}; choose from {sorted(ADAPTERS)}")
+    try:
+        cutoff = _timestamp_key(since, field="since") if since is not None else None
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc), param_hint="--since") from exc
     adapter = ADAPTERS[schema]()
 
     typer.echo(f"labelpull v{__version__}")
     if from_export is not None:
         rows = read_export_file(from_export)
-        if since is not None:
-            rows = [r for r in rows if _row_since(r, project_id, since)]
+        if cutoff is not None:
+            rows = [r for r in rows if _row_since(r, project_id, cutoff)]
         typer.echo(f"  read {len(rows)} rows from {from_export}")
     else:
         rows = list(live_export(project_id, status=status, since=since, api_key=api_key))
@@ -80,10 +84,6 @@ def pull(
     _print_summary(rows, features)
     write_csv(out, adapter, features)
     typer.echo(f"wrote {schema} CSV: {out}")
-
-
-def _row_since(dr: JsonDict, project_id: str, since: str) -> bool:
-    return _created_at(_select_project(dr, project_id)) >= since
 
 
 def _print_summary(rows: list[JsonDict], features: list[FeatureRow]) -> None:
