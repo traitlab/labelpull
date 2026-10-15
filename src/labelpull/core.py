@@ -21,13 +21,23 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, cast
 
 # One export row (and its nested blocks) is arbitrary JSON; alias it for brevity.
 JsonDict = dict[str, Any]
+
+# Retain sub-microsecond digits rather than letting datetime truncate them.
+_TimestampKey = tuple[datetime, str]
+_TIMESTAMP = re.compile(
+    r"\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?"
+    r"(?P<offset>Z|[+-](?P<hours>\d{2}):(?P<minutes>\d{2})(?::(?P<seconds>\d{2}))?))?",
+    re.ASCII,
+)
 
 # The task-queue stages ``project.export(filters={"workflow_status": ...})`` accepts.
 WORKFLOW_STATUSES = ("ToLabel", "InReview", "InRework", "Done")
@@ -72,10 +82,13 @@ def export(
 
     ``status`` filters by task-queue stage (see :data:`WORKFLOW_STATUSES`).
     ``since`` keeps only rows whose newest label was created on/after an ISO
-    date/datetime string (lexicographic compare on the ISO timestamp). Pass
-    ``client`` to inject a stub; otherwise the ``labelbox`` SDK is imported
-    lazily and a client is built from ``api_key`` or ``LABELBOX_API_KEY``.
+    date/datetime string. Dates mean UTC midnight; datetimes need an explicit
+    UTC offset. Missing timestamps do not pass a cutoff; invalid or naive
+    timestamps raise ``ValueError``. Pass ``client`` to inject a stub; otherwise
+    the ``labelbox`` SDK is imported lazily and a client is built from
+    ``api_key`` or ``LABELBOX_API_KEY``.
     """
+    cutoff = _timestamp_key(since, field="since") if since is not None else None
     cl = client if client is not None else _make_client(api_key)
     project = cl.get_project(project_id)
     filters = {"workflow_status": status} if status else None
@@ -86,7 +99,7 @@ def export(
     task.wait_till_done()
     for row in task.get_buffered_stream():
         dr = row.json
-        if since is None or _created_at(_select_project(dr, project_id)) >= since:
+        if cutoff is None or _row_since(dr, project_id, cutoff):
             yield dr
 
 
@@ -192,12 +205,15 @@ def summarize(rows: Iterable[JsonDict], features: Iterable[FeatureRow]) -> Summa
     names: dict[str, int] = {}
     statuses: dict[str, int] = {}
     latest: str | None = None
+    latest_key: _TimestampKey | None = None
     for f in features:
         if f.feature_kind == "label":
             if f.workflow_status:
                 statuses[f.workflow_status] = statuses.get(f.workflow_status, 0) + 1
-            if f.created_at and (latest is None or f.created_at > latest):
-                latest = f.created_at
+            if f.created_at:
+                timestamp = _timestamp_key(f.created_at)
+                if latest_key is None or timestamp > latest_key:
+                    latest, latest_key = f.created_at, timestamp
             continue
         kinds[f.feature_kind] = kinds.get(f.feature_kind, 0) + 1
         if f.feature_name:
@@ -251,7 +267,8 @@ def _latest_label(proj: JsonDict) -> JsonDict | None:
 
     Selection rules:
     - If ALL labels have a non-empty ``created_at``, return the one with the
-      maximum (newest) timestamp.
+      maximum (newest) timestamp. Equivalent instants keep the first label.
+      Invalid or timezone-naive datetimes raise ``ValueError``.
     - Otherwise, at least one label is missing a timestamp. Fall back to export
       order and return ``labels[-1]``. Export order is last-in-newest by
       Labelbox convention, so this is a best-effort approximation when
@@ -263,8 +280,12 @@ def _latest_label(proj: JsonDict) -> JsonDict | None:
     # Fall back to export order when any label is missing a timestamp.
     # (Export order: last-in == newest; deliberate best-effort fallback.)
     if not all(_created_at_of_label(lbl) for lbl in labels):
-        return cast("JsonDict", labels[-1])
-    return cast("JsonDict", max(labels, key=_created_at_of_label))
+        selected = cast("JsonDict", labels[-1])
+        timestamp = _created_at_of_label(selected)
+        if timestamp:
+            _timestamp_key(timestamp)
+        return selected
+    return cast("JsonDict", max(labels, key=lambda lbl: _timestamp_key(_created_at_of_label(lbl))))
 
 
 def _created_at_of_label(label: JsonDict) -> str:
@@ -274,6 +295,51 @@ def _created_at_of_label(label: JsonDict) -> str:
 def _created_at(proj: JsonDict) -> str:
     label = _latest_label(proj)
     return _created_at_of_label(label) if label else ""
+
+
+def _timestamp_key(value: str, *, field: str = "created_at") -> _TimestampKey:
+    """Compare ISO timestamps as instants, retaining arbitrary fractional seconds.
+
+    Date-only values mean UTC midnight. Datetimes require an explicit offset;
+    guessing local time would make offline and live results machine-dependent.
+    """
+    error = (
+        f"{field} must be YYYY-MM-DD or an extended datetime with seconds and a UTC offset, "
+        f"got {value!r}"
+    )
+    if not isinstance(value, str) or not value:
+        raise ValueError(error)
+    # fromisoformat can discard a fractional offset when its whole seconds are zero.
+    if re.search(r"[+-]\d{2}(?::?\d{2}){0,2}[.,]", value):
+        raise ValueError(f"{field} does not support fractional UTC offsets, got {value!r}")
+    match = _TIMESTAMP.fullmatch(value)
+    if match is None or any(
+        int(match[name] or 0) >= limit
+        for name, limit in (("hours", 24), ("minutes", 60), ("seconds", 60))
+    ):
+        raise ValueError(error)
+    normalized = value.removesuffix("Z") + "+00:00" if value.endswith("Z") else value
+    remainder = ""
+    fraction = re.fullmatch(r"(.{19})[.,](\d+)(.*)", normalized)
+    if fraction is not None:
+        digits = fraction[2]
+        # Python 3.10 accepts 3 or 6 fractional digits, and no Z suffix.
+        normalized = f"{fraction[1]}.{digits[:6].ljust(6, '0')}{fraction[3]}"
+        remainder = digits[6:].rstrip("0")
+    try:
+        timestamp = datetime.fromisoformat(normalized)
+    except ValueError as exc:
+        raise ValueError(error) from exc
+    if timestamp.tzinfo is None:
+        if len(value) != len("YYYY-MM-DD"):
+            raise ValueError(error)
+        timestamp = timestamp.replace(tzinfo=timezone.utc)
+    return timestamp, remainder
+
+
+def _row_since(dr: JsonDict, project_id: str, cutoff: _TimestampKey) -> bool:
+    created_at = _created_at(_select_project(dr, project_id))
+    return bool(created_at) and _timestamp_key(created_at) >= cutoff
 
 
 def _workflow_status(proj: JsonDict) -> str | None:

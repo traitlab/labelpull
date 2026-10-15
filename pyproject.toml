@@ -30,8 +30,8 @@ target-version = "py310"
 select = ["E", "F", "I", "B", "UP", "SIM", "PL"]
 
 [tool.ruff.lint.per-file-ignores]
-# Typer expresses CLI args as call-defaults (B008) and wide signatures (PLR0913).
-"src/labelpull/cli.py" = ["B008", "PLR0913"]
+# Typer expresses CLI args as call-defaults (B008) and wide signatures (PLR0913/PLR0917).
+"src/labelpull/cli.py" = ["B008", "PLR0913", "PLR0917"]
 # Tests assert against literal expected values (PLR2004) and import lazily (PLC0415).
 "tests/*" = ["PLR2004", "PLC0415", "E501"]
 
